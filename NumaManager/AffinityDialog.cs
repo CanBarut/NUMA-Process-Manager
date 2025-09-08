@@ -1018,7 +1018,7 @@ public partial class AffinityDialog : Form
         try
         {
             // ERP akıllı atama yap
-            var erpCpus = NumaService.ErpSmartAssignment.GetOptimalErpAssignment(_systemInfo, _processInfo.ProcessName);
+            var erpCpus = NumaService.ErpSmartAssignment.GetOptimalErpAssignment(_systemInfo, _processInfo);
             
             if (erpCpus.Count > 0)
             {

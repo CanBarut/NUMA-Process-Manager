@@ -138,6 +138,8 @@ public partial class Form1 : Form
         listView.Columns.Add("PID", 60);
         listView.Columns.Add("Process Adı", 150);
         listView.Columns.Add("Pencere Başlığı", 200);
+        listView.Columns.Add("Kullanıcı", 160);
+        listView.Columns.Add("Oturum", 60);
         listView.Columns.Add("RAM (MB)", 80);
         listView.Columns.Add("Mevcut Affinity", 100);
 
@@ -310,6 +312,9 @@ public partial class Form1 : Form
         _refreshTimer.Interval = 10000; // 10 saniye
         _refreshTimer.Tick += RefreshTimer_Tick;
         _refreshTimer.Start();
+
+        // Uygulama başlarken tüm kuralları mevcut süreçlere uygula
+        try { NumaService.ApplyAllRulesToRunningProcesses(); } catch {}
     }
 
     /// <summary>
@@ -353,6 +358,8 @@ public partial class Form1 : Form
                 var item = new ListViewItem(process.ProcessId.ToString());
                 item.SubItems.Add(process.ProcessName);
                 item.SubItems.Add(process.WindowTitle);
+                item.SubItems.Add(string.IsNullOrWhiteSpace(process.UserName) ? "" : process.UserName);
+                item.SubItems.Add(process.SessionId.ToString());
                 item.SubItems.Add(process.WorkingSetMB.ToString());
                 item.SubItems.Add(process.CurrentAffinityMask);
                 item.Tag = process;
@@ -391,6 +398,8 @@ public partial class Form1 : Form
     private void RefreshTimer_Tick(object sender, EventArgs e)
     {
         UpdateSystemLabels();
+        // Periyodik olarak kuralları çalışan süreçlere uygula (arka plan izleme)
+        try { NumaService.ApplyAllRulesToRunningProcesses(); } catch {}
         RefreshProcessList();
     }
 
@@ -517,11 +526,16 @@ public partial class Form1 : Form
     {
         try
         {
-            using (var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"SOFTWARE\LabsOffice\NumaManager\ProcessAffinity"))
+            // Hem HKLM (tüm kullanıcılar) hem HKCU (mevcut kullanıcı) altına yaz
+            void WriteTo(Microsoft.Win32.RegistryKey root)
             {
+                using var key = root.CreateSubKey(@"SOFTWARE\LabsOffice\NumaManager\ProcessAffinity");
                 key.SetValue(processName, affinityMask.ToInt64().ToString("X"));
             }
-            
+
+            try { WriteTo(Microsoft.Win32.Registry.LocalMachine); } catch { }
+            try { WriteTo(Microsoft.Win32.Registry.CurrentUser); } catch { }
+
             // Startup script oluştur (opsiyonel)
             CreateStartupScript(processName, affinityMask);
         }

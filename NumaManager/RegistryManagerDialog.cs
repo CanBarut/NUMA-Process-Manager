@@ -86,7 +86,7 @@ public partial class RegistryManagerDialog : Form
 
         var lblPath = new Label
         {
-            Text = $"Konum: HKEY_CURRENT_USER\\{REGISTRY_PATH}",
+            Text = $"Konumlar: HKEY_LOCAL_MACHINE\\{REGISTRY_PATH} ve HKEY_CURRENT_USER\\{REGISTRY_PATH}",
             Font = new Font("Segoe UI", 8F),
             ForeColor = Color.Gray,
             AutoSize = true,
@@ -228,33 +228,32 @@ public partial class RegistryManagerDialog : Form
 
         try
         {
-            using var key = Registry.CurrentUser.OpenSubKey(REGISTRY_PATH);
-            if (key != null)
+            void ReadFrom(RegistryKey root, string source)
             {
+                using var key = root.OpenSubKey(REGISTRY_PATH);
+                if (key == null) return;
                 foreach (string valueName in key.GetValueNames())
                 {
                     var valueData = key.GetValue(valueName)?.ToString();
-                    if (!string.IsNullOrEmpty(valueData))
+                    if (string.IsNullOrEmpty(valueData)) continue;
+                    var record = new ProcessAffinityRecord
                     {
-                        var record = new ProcessAffinityRecord
-                        {
-                            ProcessName = valueName,
-                            AffinityMaskHex = valueData,
-                            RegistryDate = GetRegistryValueDate(key, valueName)
-                        };
-
-                        // Affinity mask'ı parse et
-                        if (long.TryParse(valueData, System.Globalization.NumberStyles.HexNumber, null, out long mask))
-                        {
-                            record.AffinityMask = mask;
-                            record.CpuIds = ParseAffinityMask(mask);
-                            record.CpuCount = record.CpuIds.Count;
-                        }
-
-                        _records.Add(record);
+                        ProcessName = valueName,
+                        AffinityMaskHex = valueData,
+                        RegistryDate = GetRegistryValueDate(key, valueName)
+                    };
+                    if (long.TryParse(valueData, System.Globalization.NumberStyles.HexNumber, null, out long mask))
+                    {
+                        record.AffinityMask = mask;
+                        record.CpuIds = ParseAffinityMask(mask);
+                        record.CpuCount = record.CpuIds.Count;
                     }
+                    _records.Add(record);
                 }
             }
+
+            ReadFrom(Registry.LocalMachine, "HKLM");
+            ReadFrom(Registry.CurrentUser, "HKCU");
         }
         catch (Exception ex)
         {

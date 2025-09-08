@@ -8,6 +8,9 @@ namespace NumaManager;
 /// </summary>
 public class NumaService
 {
+    // Registry yolları (HKCU + HKLM) - global ve kullanıcı bazlı
+    private const string RegPath = @"SOFTWARE\\LabsOffice\\NumaManager\\ProcessAffinity";
+
     /// <summary>
     /// Sistem işlemci bilgileri
     /// </summary>
@@ -39,6 +42,8 @@ public class NumaService
         public int ProcessId { get; set; }
         public string ProcessName { get; set; } = "";
         public string WindowTitle { get; set; } = "";
+        public int SessionId { get; set; }
+        public string UserName { get; set; } = "";
         public IntPtr CurrentAffinity { get; set; }
         public string CurrentAffinityMask { get; set; } = "";
         public double CpuUsage { get; set; }
@@ -124,6 +129,8 @@ public class NumaService
                         ProcessId = process.Id,
                         ProcessName = process.ProcessName,
                         WindowTitle = process.MainWindowTitle,
+                        SessionId = SafeGetSessionId(process),
+                        UserName = SafeGetProcessOwner(process.Id),
                         WorkingSetMB = process.WorkingSet64 / (1024 * 1024)
                     };
 
@@ -152,6 +159,225 @@ public class NumaService
         }
 
         return processes.OrderBy(p => p.ProcessName).ToList();
+    }
+
+    /// <summary>
+    /// Registry'den process adına göre affinity mask okur (HKLM öncelikli)
+    /// </summary>
+    public static bool TryGetAffinityFromRegistry(string processName, out IntPtr affinityMask, out string source)
+    {
+        affinityMask = IntPtr.Zero;
+        source = string.Empty;
+
+        string Normalize(string name)
+        {
+            try
+            {
+                var lower = (name ?? string.Empty).Trim().ToLowerInvariant();
+                return lower.EndsWith(".exe") ? lower[..^4] : lower;
+            }
+            catch { return name ?? string.Empty; }
+        }
+
+        var keyNames = new[] { Normalize(processName), Normalize(processName) + ".exe" };
+
+        bool TryRead(Microsoft.Win32.RegistryKey root, out IntPtr mask)
+        {
+            mask = IntPtr.Zero;
+            try
+            {
+                using var key = root.OpenSubKey(RegPath);
+                if (key == null) return false;
+                foreach (var k in keyNames)
+                {
+                    var val = key.GetValue(k)?.ToString();
+                    if (!string.IsNullOrWhiteSpace(val))
+                    {
+                        if (long.TryParse(val, System.Globalization.NumberStyles.HexNumber, null, out long parsed))
+                        {
+                            mask = new IntPtr(parsed);
+                            return true;
+                        }
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        if (TryRead(Microsoft.Win32.Registry.LocalMachine, out var mHklm))
+        {
+            affinityMask = mHklm; source = "HKLM"; return true;
+        }
+        if (TryRead(Microsoft.Win32.Registry.CurrentUser, out var mHkcu))
+        {
+            affinityMask = mHkcu; source = "HKCU"; return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Çalışan tüm process'ler için registry'deki eşleşmelere göre affinity uygular
+    /// </summary>
+    public static void ApplyRegistryAffinitiesToRunningProcesses()
+    {
+        foreach (var p in Process.GetProcesses())
+        {
+            try
+            {
+                if (p.HasExited) continue;
+                if (TryGetAffinityFromRegistry(p.ProcessName, out var mask, out _))
+                {
+                    try { p.ProcessorAffinity = mask; } catch { }
+                }
+            }
+            catch { }
+        }
+    }
+
+    /// <summary>
+    /// INI dosya yolu (uygulama dizininde)
+    /// </summary>
+    public static string IniFilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "affinity_rules.ini");
+
+    private static string NormalizeProcessName(string name)
+    {
+        var n = (name ?? string.Empty).Trim().ToLowerInvariant();
+        return n.EndsWith(".exe") ? n[..^4] : n;
+    }
+
+    /// <summary>
+    /// INI: Uygulama adı → Hex mask sözlüğü okur
+    /// </summary>
+    public static Dictionary<string, string> ReadIniRules()
+    {
+        var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            if (!File.Exists(IniFilePath)) return dict;
+            foreach (var raw in File.ReadAllLines(IniFilePath))
+            {
+                var line = raw.Trim();
+                if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#") || !line.Contains('=')) continue;
+                var idx = line.IndexOf('=');
+                var key = NormalizeProcessName(line.Substring(0, idx).Trim());
+                var val = line[(idx + 1)..].Trim();
+                if (!string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(val))
+                {
+                    dict[key] = val;
+                }
+            }
+        }
+        catch { }
+        return dict;
+    }
+
+    /// <summary>
+    /// INI sözlüğünü yazar
+    /// </summary>
+    public static void WriteIniRules(Dictionary<string, string> rules)
+    {
+        try
+        {
+            var normalized = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in rules)
+            {
+                normalized[NormalizeProcessName(kv.Key)] = kv.Value;
+            }
+
+            var lines = new List<string> { "# UygulamaAdi=HexMask", "# ornek: capital=0000000F" };
+            lines.AddRange(normalized.OrderBy(k => k.Key).Select(kv => $"{kv.Key}={kv.Value}"));
+            File.WriteAllLines(IniFilePath, lines);
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// INI+Registry kurallarını çalışan süreçlere uygular
+    /// </summary>
+    public static void ApplyAllRulesToRunningProcesses()
+    {
+        var ini = ReadIniRules();
+        foreach (var p in Process.GetProcesses())
+        {
+            try
+            {
+                if (p.HasExited) continue;
+
+                // Öncelik: INI (uygulama adı), ardından Registry override
+                var key = NormalizeProcessName(p.ProcessName);
+                if (ini.TryGetValue(key, out var hex) && long.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out var parsedIni))
+                {
+                    try { p.ProcessorAffinity = new IntPtr(parsedIni); } catch { }
+                    continue;
+                }
+
+                if (TryGetAffinityFromRegistry(p.ProcessName, out var mask, out _))
+                {
+                    try { p.ProcessorAffinity = mask; } catch { }
+                }
+            }
+            catch { }
+        }
+    }
+
+    /// <summary>
+    /// Process başladığında tetiklenecek: eşleşme varsa mask uygular, INI’ye log yazar
+    /// </summary>
+    public static void TriggerForProcessStart(Process process)
+    {
+        try
+        {
+            if (process.HasExited) return;
+
+            // Öncelik: INI
+            var ini = ReadIniRules();
+            var key = NormalizeProcessName(process.ProcessName);
+            if (ini.TryGetValue(key, out var hex) && long.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out var parsedIni))
+            {
+                try { process.ProcessorAffinity = new IntPtr(parsedIni); } catch { }
+                return;
+            }
+
+            // Registry
+            if (TryGetAffinityFromRegistry(process.ProcessName, out var mask, out _))
+            {
+                try { process.ProcessorAffinity = mask; } catch { }
+                return;
+            }
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// Güvenli şekilde SessionId okur (erişim hatalarında 0 döner)
+    /// </summary>
+    private static int SafeGetSessionId(Process process)
+    {
+        try { return process.SessionId; } catch { return 0; }
+    }
+
+    /// <summary>
+    /// Process'in çalıştığı kullanıcı adını DOMAIN\User formatında döner (erişim hatasında boş döner)
+    /// </summary>
+    private static string SafeGetProcessOwner(int pid)
+    {
+        try
+        {
+            using var searcher = new ManagementObjectSearcher($"SELECT * FROM Win32_Process WHERE ProcessId = {pid}");
+            foreach (ManagementObject obj in searcher.Get())
+            {
+                var outParams = obj.InvokeMethod("GetOwner", null, null) as ManagementBaseObject;
+                var user = outParams?["User"]?.ToString();
+                var domain = outParams?["Domain"]?.ToString();
+                if (!string.IsNullOrWhiteSpace(user))
+                {
+                    return string.IsNullOrWhiteSpace(domain) ? user! : $"{domain}\\{user}";
+                }
+            }
+        }
+        catch { }
+        return string.Empty;
     }
 
     /// <summary>
@@ -260,6 +486,47 @@ public class NumaService
                 default:
                     return GetDefaultErpAssignment(systemInfo, currentErpProcesses);
             }
+        }
+
+        /// <summary>
+        /// Seçili işlem (PID/Session) için optimal NUMA ataması yapar
+        /// </summary>
+        public static List<int> GetOptimalErpAssignment(ProcessorInfo systemInfo, ProcessInfo targetProcess)
+        {
+            // Aynı uygulamanın çalışan tüm örnekleri
+            var erpProcesses = GetErpProcesses()
+                .Where(p => p.ProcessName.Equals(targetProcess.ProcessName, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            // Önce aynı session içindeki mevcut atamayı koru
+            var sameSession = erpProcesses.Where(p => p.SessionId == targetProcess.SessionId).ToList();
+            var sessionNodeId = DetermineDominantNodeIdForProcesses(sameSession, systemInfo);
+            if (sessionNodeId.HasValue)
+            {
+                return systemInfo.Nodes.First(n => n.NodeId == sessionNodeId.Value).ProcessorIds.Take(4).ToList();
+            }
+
+            // Node başına kaç farklı session var? (eşitlikte daha az yük)
+            var sessionsPerNode = systemInfo.Nodes.ToDictionary(n => n.NodeId, _ => new HashSet<int>());
+            foreach (var p in erpProcesses)
+            {
+                var nodeId = DetermineDominantNodeIdForProcess(p, systemInfo);
+                if (nodeId.HasValue)
+                {
+                    sessionsPerNode[nodeId.Value].Add(p.SessionId);
+                }
+            }
+
+            // Eğer hiç atama yoksa, sessionId'ye göre round-robin
+            var haveAny = sessionsPerNode.Any(kv => kv.Value.Count > 0);
+            if (!haveAny)
+            {
+                var rrIndex = Math.Abs(targetProcess.SessionId) % Math.Max(systemInfo.Nodes.Count, 1);
+                return systemInfo.Nodes[rrIndex].ProcessorIds.Take(4).ToList();
+            }
+
+            var targetNodeId = sessionsPerNode.OrderBy(kv => kv.Value.Count).First().Key;
+            return systemInfo.Nodes.First(n => n.NodeId == targetNodeId).ProcessorIds.Take(4).ToList();
         }
 
         /// <summary>
@@ -401,6 +668,42 @@ public class NumaService
             // En az yüklü node'u bul
             var leastLoadedNodeId = nodeLoads.OrderBy(kvp => kvp.Value).FirstOrDefault().Key;
             return systemInfo.Nodes.FirstOrDefault(n => n.NodeId == leastLoadedNodeId);
+        }
+
+        /// <summary>
+        /// Belirli bir process için dominant NUMA node ID'sini döner (mask tüm CPU'lar ise null)
+        /// </summary>
+        private static int? DetermineDominantNodeIdForProcess(ProcessInfo process, ProcessorInfo systemInfo)
+        {
+            var processCpus = GetProcessCpuIds(process.CurrentAffinity);
+            if (processCpus.Count == 0 || processCpus.Count >= systemInfo.LogicalProcessors)
+                return null; // Atanmamış/tüm CPU'lar
+
+            var counts = new Dictionary<int, int>();
+            foreach (var node in systemInfo.Nodes)
+            {
+                counts[node.NodeId] = processCpus.Count(cpu => node.ProcessorIds.Contains(cpu));
+            }
+            var best = counts.OrderByDescending(kv => kv.Value).First();
+            return best.Value > 0 ? best.Key : null;
+        }
+
+        /// <summary>
+        /// Bir grup process için dominant node'u döner (çoğunluğa göre)
+        /// </summary>
+        private static int? DetermineDominantNodeIdForProcesses(List<ProcessInfo> processes, ProcessorInfo systemInfo)
+        {
+            var tallies = new Dictionary<int, int>();
+            foreach (var node in systemInfo.Nodes) tallies[node.NodeId] = 0;
+
+            foreach (var p in processes)
+            {
+                var nodeId = DetermineDominantNodeIdForProcess(p, systemInfo);
+                if (nodeId.HasValue) tallies[nodeId.Value]++;
+            }
+
+            var best = tallies.OrderByDescending(kv => kv.Value).First();
+            return best.Value > 0 ? best.Key : (int?)null;
         }
 
         /// <summary>
