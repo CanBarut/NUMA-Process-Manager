@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("NumaManager")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d35a4f990544427608dfbce6efa7f51a7f7d06ce")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+cf062a4466cd2db1d4020eeecace5be569eeceb1")]
 [assembly: System.Reflection.AssemblyProductAttribute("NumaManager")]
 [assembly: System.Reflection.AssemblyTitleAttribute("NumaManager")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
