@@ -1,7 +1,32 @@
+# Build outputs
+bin/
+obj/
 **/bin/
 **/obj/
+**/Debug/
+**/Release/
+NumaManager/bin/
+NumaManager/obj/
+
+# Compiled files
 *.dll
 *.pdb
 *.exe
 *.cache
 *.log
+
+# Visual Studio files
+*.user
+*.suo
+*.sln.docstates
+
+# NuGet
+packages/
+*.nupkg
+
+# Temporary files
+*.tmp
+*.temp
+
+# Specific files that might be tracked
+affinity_Capital.bat
