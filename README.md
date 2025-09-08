@@ -1,6 +1,6 @@
 # 🖥️ NUMA Process Manager
 
-**LabsOffice** tarafından geliştirilmiş, Windows sistemlerde NUMA (Non-Uniform Memory Access) optimizasyonu için gelişmiş bir process yönetim aracı.
+**Labs Office** geliştirici ekibi tarafından geliştirilmiştir, Windows sistemlerde NUMA (Non-Uniform Memory Access) optimizasyonu için gelişmiş bir process yönetim aracı.
 
 ## 📋 İçindekiler
 
@@ -355,7 +355,7 @@ dotnet run --configuration Debug
 
 1. **Repository'yi klonlayın**:
 ```bash
-git clone https://github.com/labsmobile/numa-manager.git
+git clone https://github.com/NUMA-Process-Manager/numa-manager.git
 cd numa-manager
 ```
 
@@ -391,8 +391,8 @@ Bu proje **MIT Lisansı** altında lisanslanmıştır. Detaylar için [LICENSE](
 
 ## 📞 İletişim
 
-- **Geliştirici**: LabsOffice
-- **Email**: can@labsoffice.com
+- **Geliştirici**: Labs Office
+- **Email**: info@labsoffice.com
 - **Website**: https://labsoffice.com
 
 
