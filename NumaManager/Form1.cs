@@ -30,6 +30,9 @@ public partial class Form1 : Form
         
         // Ana panel layout
         CreateControls();
+        
+        // Tooltip'leri ekle
+        SetupTooltips();
     }
 
     /// <summary>
@@ -245,9 +248,9 @@ public partial class Form1 : Form
         var chkAutoRefresh = new CheckBox 
         { 
             Name = "chkAutoRefresh", 
-            Text = "Otomatik Yenile (5s)", 
+            Text = "Otomatik Yenile (10s)", 
             Size = new Size(150, 30),
-            Checked = true
+            Checked = false
         };
         chkAutoRefresh.CheckedChanged += ChkAutoRefresh_CheckedChanged;
 
@@ -304,7 +307,7 @@ public partial class Form1 : Form
     private void SetupTimer()
     {
         _refreshTimer = new System.Windows.Forms.Timer();
-        _refreshTimer.Interval = 5000; // 5 saniye
+        _refreshTimer.Interval = 10000; // 10 saniye
         _refreshTimer.Tick += RefreshTimer_Tick;
         _refreshTimer.Start();
     }
@@ -437,7 +440,7 @@ public partial class Form1 : Form
                     {
                         if (chkList.GetItemChecked(i))
                         {
-                            var cpuText = chkList.Items[i].ToString();
+                            var cpuText = chkList.Items[i]?.ToString() ?? "";
                             if (int.TryParse(cpuText.Replace("CPU ", ""), out int cpuId))
                             {
                                 selectedCpus.Add(cpuId);
@@ -565,7 +568,7 @@ echo NUMA affinity applied to {processName}: {affinityMask.ToInt64():X}
         {
             for (int i = 0; i < chkList.Items.Count; i++)
             {
-                var cpuText = chkList.Items[i].ToString();
+                var cpuText = chkList.Items[i]?.ToString() ?? "";
                 if (int.TryParse(cpuText.Replace("CPU ", ""), out int cpuId))
                 {
                     chkList.SetItemChecked(i, selectedCpus.Contains(cpuId));
@@ -607,12 +610,78 @@ echo NUMA affinity applied to {processName}: {affinityMask.ToInt64():X}
     }
 
     /// <summary>
+    /// Tooltip'leri ayarlar
+    /// </summary>
+    private void SetupTooltips()
+    {
+        // Butonlara tooltip ekle
+        var btnRefresh = this.Controls.Find("btnRefresh", true).FirstOrDefault() as Button;
+        if (btnRefresh != null)
+            TooltipHelper.SetTooltip(btnRefresh, TooltipTexts.REFRESH_BUTTON, "🔄 Yenile Butonu");
+
+        var btnApply = this.Controls.Find("btnApply", true).FirstOrDefault() as Button;
+        if (btnApply != null)
+            TooltipHelper.SetTooltip(btnApply, TooltipTexts.APPLY_AFFINITY_BUTTON, "🎯 Affinity Uygula");
+
+        var btnReset = this.Controls.Find("btnReset", true).FirstOrDefault() as Button;
+        if (btnReset != null)
+            TooltipHelper.SetTooltip(btnReset, TooltipTexts.RESET_BUTTON, "🔄 Sıfırla");
+
+        var chkAutoRefresh = this.Controls.Find("chkAutoRefresh", true).FirstOrDefault() as CheckBox;
+        if (chkAutoRefresh != null)
+            TooltipHelper.SetTooltip(chkAutoRefresh, TooltipTexts.AUTO_REFRESH_CHECKBOX, "⏰ Otomatik Yenileme");
+
+        // NUMA kontrollerine tooltip ekle
+        var cmbNodes = this.Controls.Find("cmbNumaNodes", true).FirstOrDefault() as ComboBox;
+        if (cmbNodes != null)
+            TooltipHelper.SetTooltip(cmbNodes, TooltipTexts.NUMA_NODE_COMBO, "🗺️ NUMA Node Seçimi");
+
+        var chkListCpus = this.Controls.Find("chkListCpus", true).FirstOrDefault() as CheckedListBox;
+        if (chkListCpus != null)
+            TooltipHelper.SetTooltip(chkListCpus, TooltipTexts.CPU_CHECKLIST, "🖥️ CPU Seçimi");
+
+        // Process listesine tooltip ekle
+        var lvProcesses = this.Controls.Find("lvProcesses", true).FirstOrDefault() as ListView;
+        if (lvProcesses != null)
+            TooltipHelper.SetTooltip(lvProcesses, TooltipTexts.PROCESS_LIST, "📋 Process Listesi");
+
+        // Sistem bilgi labellarına tooltip ekle
+        var lblCores = this.Controls.Find("lblCores", true).FirstOrDefault() as Label;
+        if (lblCores != null)
+            TooltipHelper.SetTooltip(lblCores, "💻 Sistem çekirdek sayısı\n\nFiziksel CPU çekirdeklerinin toplam sayısı", "Çekirdek Sayısı");
+
+        var lblThreads = this.Controls.Find("lblThreads", true).FirstOrDefault() as Label;
+        if (lblThreads != null)
+            TooltipHelper.SetTooltip(lblThreads, "🧵 Mantıksal işlemci sayısı\n\nHyperthreading dahil toplam thread sayısı", "Thread Sayısı");
+
+        var lblSockets = this.Controls.Find("lblSockets", true).FirstOrDefault() as Label;
+        if (lblSockets != null)
+            TooltipHelper.SetTooltip(lblSockets, "🔌 Fiziksel CPU socket sayısı\n\nSistemdeki fiziksel CPU paketlerinin sayısı", "Socket Sayısı");
+
+        var lblNumaNodes = this.Controls.Find("lblNumaNodes", true).FirstOrDefault() as Label;
+        if (lblNumaNodes != null)
+            TooltipHelper.SetTooltip(lblNumaNodes, "🗺️ NUMA node sayısı\n\nBellek ve CPU'ların gruplandığı node sayısı", "NUMA Node Sayısı");
+
+        var lblCpuUsage = this.Controls.Find("lblCpuUsage", true).FirstOrDefault() as Label;
+        if (lblCpuUsage != null)
+            TooltipHelper.SetTooltip(lblCpuUsage, "📊 Anlık CPU kullanım oranı\n\nSistem geneli CPU kullanım yüzdesi", "CPU Kullanımı");
+
+        var lblMemory = this.Controls.Find("lblMemory", true).FirstOrDefault() as Label;
+        if (lblMemory != null)
+            TooltipHelper.SetTooltip(lblMemory, "💾 Kullanılabilir bellek miktarı\n\nSistemde kullanılabilir RAM miktarı (MB)", "Bellek Durumu");
+    }
+
+    /// <summary>
     /// Form kapanırken cleanup
     /// </summary>
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         _refreshTimer?.Stop();
         _refreshTimer?.Dispose();
+        
+        // Tooltip'leri temizle
+        TooltipHelper.ClearFormTooltips(this);
+        
         base.OnFormClosed(e);
     }
 }

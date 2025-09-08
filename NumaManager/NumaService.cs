@@ -226,4 +226,236 @@ public class NumaService
         }
         return $"0x{mask:X}";
     }
+
+    /// <summary>
+    /// ERP yazılımları için akıllı NUMA atama sistemi
+    /// </summary>
+    public class ErpSmartAssignment
+    {
+        /// <summary>
+        /// ERP process'leri için optimal NUMA ataması yapar
+        /// </summary>
+        public static List<int> GetOptimalErpAssignment(ProcessorInfo systemInfo, string processName)
+        {
+            var erpProcesses = GetErpProcesses();
+            var currentErpProcesses = erpProcesses.Where(p => p.ProcessName.Equals(processName, StringComparison.OrdinalIgnoreCase)).ToList();
+            
+            // ERP process türüne göre strateji belirle
+            var strategy = DetermineErpStrategy(processName);
+            
+            switch (strategy)
+            {
+                case ErpStrategy.DatabaseServer:
+                    return GetDatabaseServerAssignment(systemInfo, currentErpProcesses);
+                
+                case ErpStrategy.ApplicationServer:
+                    return GetApplicationServerAssignment(systemInfo, currentErpProcesses);
+                
+                case ErpStrategy.WebServer:
+                    return GetWebServerAssignment(systemInfo, currentErpProcesses);
+                
+                case ErpStrategy.ReportServer:
+                    return GetReportServerAssignment(systemInfo, currentErpProcesses);
+                
+                default:
+                    return GetDefaultErpAssignment(systemInfo, currentErpProcesses);
+            }
+        }
+
+        /// <summary>
+        /// ERP process türünü belirler
+        /// </summary>
+        private static ErpStrategy DetermineErpStrategy(string processName)
+        {
+            var name = processName.ToLower();
+            
+            // Veritabanı sunucuları
+            if (name.Contains("sql") || name.Contains("oracle") || name.Contains("postgres") || 
+                name.Contains("mysql") || name.Contains("db2") || name.Contains("sybase"))
+                return ErpStrategy.DatabaseServer;
+            
+            // Web sunucuları
+            if (name.Contains("iis") || name.Contains("apache") || name.Contains("nginx") || 
+                name.Contains("tomcat") || name.Contains("weblogic") || name.Contains("websphere"))
+                return ErpStrategy.WebServer;
+            
+            // Rapor sunucuları
+            if (name.Contains("report") || name.Contains("crystal") || name.Contains("ssrs") || 
+                name.Contains("cognos") || name.Contains("businessobjects"))
+                return ErpStrategy.ReportServer;
+            
+            // ERP uygulama sunucuları
+            if (name.Contains("sap") || name.Contains("oracle") || name.Contains("dynamics") || 
+                name.Contains("netsuite") || name.Contains("capital") || name.Contains("capital.exe") || 
+                name.Contains("labsmobile"))
+                return ErpStrategy.ApplicationServer;
+            
+            return ErpStrategy.Default;
+        }
+
+        /// <summary>
+        /// Veritabanı sunucuları için atama
+        /// </summary>
+        private static List<int> GetDatabaseServerAssignment(ProcessorInfo systemInfo, List<ProcessInfo> currentProcesses)
+        {
+            // Veritabanı sunucuları için: Son NUMA node'ları tercih et (genelde daha az kullanılır)
+            var lastNode = systemInfo.Nodes.LastOrDefault();
+            if (lastNode != null)
+            {
+                // Son node'daki son 4 CPU'yu al
+                return lastNode.ProcessorIds.TakeLast(4).ToList();
+            }
+            
+            return GetDefaultErpAssignment(systemInfo, currentProcesses);
+        }
+
+        /// <summary>
+        /// Uygulama sunucuları için atama
+        /// </summary>
+        private static List<int> GetApplicationServerAssignment(ProcessorInfo systemInfo, List<ProcessInfo> currentProcesses)
+        {
+            // Uygulama sunucuları için: En az yüklü node'u bul
+            var leastLoadedNode = GetLeastLoadedNode(systemInfo, currentProcesses);
+            if (leastLoadedNode != null)
+            {
+                // En az yüklü node'daki ilk 4 CPU'yu al
+                return leastLoadedNode.ProcessorIds.Take(4).ToList();
+            }
+            
+            return GetDefaultErpAssignment(systemInfo, currentProcesses);
+        }
+
+        /// <summary>
+        /// Web sunucuları için atama
+        /// </summary>
+        private static List<int> GetWebServerAssignment(ProcessorInfo systemInfo, List<ProcessInfo> currentProcesses)
+        {
+            // Web sunucuları için: Orta node'ları tercih et
+            var middleNodeIndex = systemInfo.Nodes.Count / 2;
+            if (middleNodeIndex < systemInfo.Nodes.Count)
+            {
+                var middleNode = systemInfo.Nodes[middleNodeIndex];
+                // Orta node'daki orta CPU'ları al
+                var startIndex = middleNode.ProcessorIds.Count / 2 - 2;
+                var endIndex = startIndex + 4;
+                return middleNode.ProcessorIds.Skip(startIndex).Take(4).ToList();
+            }
+            
+            return GetDefaultErpAssignment(systemInfo, currentProcesses);
+        }
+
+        /// <summary>
+        /// Rapor sunucuları için atama
+        /// </summary>
+        private static List<int> GetReportServerAssignment(ProcessorInfo systemInfo, List<ProcessInfo> currentProcesses)
+        {
+            // Rapor sunucuları için: İlk node'u tercih et (genelde daha stabil)
+            var firstNode = systemInfo.Nodes.FirstOrDefault();
+            if (firstNode != null)
+            {
+                // İlk node'daki son 4 CPU'yu al
+                return firstNode.ProcessorIds.TakeLast(4).ToList();
+            }
+            
+            return GetDefaultErpAssignment(systemInfo, currentProcesses);
+        }
+
+        /// <summary>
+        /// Varsayılan ERP ataması
+        /// </summary>
+        private static List<int> GetDefaultErpAssignment(ProcessorInfo systemInfo, List<ProcessInfo> currentProcesses)
+        {
+            // Varsayılan: En az yüklü node'dan 4 CPU
+            var leastLoadedNode = GetLeastLoadedNode(systemInfo, currentProcesses);
+            if (leastLoadedNode != null)
+            {
+                return leastLoadedNode.ProcessorIds.Take(4).ToList();
+            }
+            
+            // Fallback: İlk node'dan 4 CPU
+            return systemInfo.Nodes.FirstOrDefault()?.ProcessorIds.Take(4).ToList() ?? new List<int>();
+        }
+
+        /// <summary>
+        /// En az yüklü NUMA node'unu bulur
+        /// </summary>
+        private static NumaNode? GetLeastLoadedNode(ProcessorInfo systemInfo, List<ProcessInfo> currentProcesses)
+        {
+            var nodeLoads = new Dictionary<int, int>();
+            
+            // Her node için yük hesapla
+            foreach (var node in systemInfo.Nodes)
+            {
+                var load = 0;
+                foreach (var process in currentProcesses)
+                {
+                    var processCpus = GetProcessCpuIds(process.CurrentAffinity);
+                    var nodeCpus = node.ProcessorIds;
+                    
+                    // Bu process'in kaç CPU'su bu node'da
+                    load += processCpus.Count(cpu => nodeCpus.Contains(cpu));
+                }
+                nodeLoads[node.NodeId] = load;
+            }
+            
+            // En az yüklü node'u bul
+            var leastLoadedNodeId = nodeLoads.OrderBy(kvp => kvp.Value).FirstOrDefault().Key;
+            return systemInfo.Nodes.FirstOrDefault(n => n.NodeId == leastLoadedNodeId);
+        }
+
+        /// <summary>
+        /// Process'in kullandığı CPU ID'lerini döner
+        /// </summary>
+        private static List<int> GetProcessCpuIds(IntPtr affinityMask)
+        {
+            var cpuIds = new List<int>();
+            var mask = affinityMask.ToInt64();
+            
+            for (int i = 0; i < 64; i++)
+            {
+                if ((mask & (1L << i)) != 0)
+                {
+                    cpuIds.Add(i);
+                }
+            }
+            
+            return cpuIds;
+        }
+
+        /// <summary>
+        /// ERP process'lerini alır
+        /// </summary>
+        private static List<ProcessInfo> GetErpProcesses()
+        {
+            return GetRunningProcesses().Where(p => IsErpProcess(p.ProcessName)).ToList();
+        }
+
+        /// <summary>
+        /// Process'in ERP process'i olup olmadığını kontrol eder
+        /// </summary>
+        private static bool IsErpProcess(string processName)
+        {
+            var name = processName.ToLower();
+            var erpKeywords = new[]
+            {
+                "sap", "oracle", "dynamics", "netsuite", "capital", "capital.exe", 
+                "labsmobile", "sql", "iis", "apache", "tomcat", "weblogic", "websphere", 
+                "report", "crystal", "ssrs", "cognos"
+            };
+            
+            return erpKeywords.Any(keyword => name.Contains(keyword));
+        }
+    }
+
+    /// <summary>
+    /// ERP strateji türleri
+    /// </summary>
+    public enum ErpStrategy
+    {
+        Default,
+        DatabaseServer,
+        ApplicationServer,
+        WebServer,
+        ReportServer
+    }
 }

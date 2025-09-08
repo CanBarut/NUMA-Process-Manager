@@ -116,11 +116,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\Can\\source\\repos\\LabsMobile\\LabsMobile\\NumaOptimization\\NumaManager\\NumaManager.csproj",
+      "projectUniqueName": "C:\\Users\\Can\\source\\repos\\NUMA-Process-Manager\\NumaManager\\NumaManager.csproj",
       "projectName": "NumaManager",
-      "projectPath": "C:\\Users\\Can\\source\\repos\\LabsMobile\\LabsMobile\\NumaOptimization\\NumaManager\\NumaManager.csproj",
+      "projectPath": "C:\\Users\\Can\\source\\repos\\NUMA-Process-Manager\\NumaManager\\NumaManager.csproj",
       "packagesPath": "C:\\Users\\Can\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\Can\\source\\repos\\LabsMobile\\LabsMobile\\NumaOptimization\\NumaManager\\obj\\",
+      "outputPath": "C:\\Users\\Can\\source\\repos\\NUMA-Process-Manager\\NumaManager\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"

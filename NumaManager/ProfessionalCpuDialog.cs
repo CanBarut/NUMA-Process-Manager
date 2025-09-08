@@ -75,6 +75,9 @@ public partial class ProfessionalCpuDialog : Form
         mainLayout.SetColumnSpan(buttonPanel, 2);
 
         this.Controls.Add(mainLayout);
+        
+        // Tooltip'leri ayarla
+        SetupTooltips();
     }
 
     private GroupBox CreateManualSelectionPanel()
@@ -403,7 +406,7 @@ public partial class ProfessionalCpuDialog : Form
 
     private void UpdateCpuButtonState(Button button, bool selected)
     {
-        var cpuId = (int)button.Tag;
+        var cpuId = (int)(button.Tag ?? 0);
         
         if (selected)
         {
@@ -488,6 +491,7 @@ public partial class ProfessionalCpuDialog : Form
     private void CpuButton_Click(object sender, EventArgs e)
     {
         var button = sender as Button;
+        if (button?.Tag == null) return;
         var cpuId = (int)button.Tag;
         
         if (_selectedCpus.Contains(cpuId))
@@ -765,5 +769,95 @@ public partial class ProfessionalCpuDialog : Form
         UpdateAllCpuButtons();
         UpdateAnalysis();
         LoadCurrentSelection();
+    }
+
+    /// <summary>
+    /// Tooltip'leri ayarlar
+    /// </summary>
+    private void SetupTooltips()
+    {
+        // Manuel giriş kontrollerine tooltip ekle
+        var txtManual = this.Controls.Find("txtManualCpus", true).FirstOrDefault() as TextBox;
+        if (txtManual != null)
+            TooltipHelper.SetTooltip(txtManual, TooltipTexts.MANUAL_CPU_INPUT, "✏️ Manuel CPU Girişi");
+
+        var txtMask = this.Controls.Find("txtAffinityMask", true).FirstOrDefault() as TextBox;
+        if (txtMask != null)
+            TooltipHelper.SetTooltip(txtMask, TooltipTexts.AFFINITY_MASK_INPUT, "🔢 Affinity Mask");
+
+        var cmbQuick = this.Controls.Find("cmbQuickSelection", true).FirstOrDefault() as ComboBox;
+        if (cmbQuick != null)
+            TooltipHelper.SetTooltip(cmbQuick, TooltipTexts.QUICK_SELECTION, "⚡ Hızlı Seçim");
+
+        // Tüm butonları bul ve tooltip ekle
+        var allButtons = GetAllControls<Button>(this);
+        
+        foreach (var button in allButtons)
+        {
+            if (button.Text.Contains("Uygula") && !button.Text.Contains("Hızlı"))
+                TooltipHelper.SetTooltip(button, "✅ Manuel girişi uygular\n\nGirilen CPU ID'lerini seçer", "Uygula");
+            else if (button.Text.Contains("Doğrula"))
+                TooltipHelper.SetTooltip(button, TooltipTexts.VALIDATE_BUTTON, "✅ Doğrula");
+            else if (button.Text.Contains("Mask Uygula"))
+                TooltipHelper.SetTooltip(button, "✅ Mask'i uygular\n\nGirilen affinity mask'ını CPU seçimine çevirir", "Mask Uygula");
+            else if (button.Text.Contains("Oluştur"))
+                TooltipHelper.SetTooltip(button, TooltipTexts.GENERATE_MASK_BUTTON, "🔧 Mask Oluştur");
+            else if (button.Text.Contains("Hızlı Uygula"))
+                TooltipHelper.SetTooltip(button, "⚡ Hızlı seçimi uygular\n\nSeçilen moda göre CPU'ları seçer", "Hızlı Uygula");
+            else if (button.Text.Contains("Maksimum Performans"))
+                TooltipHelper.SetTooltip(button, "🚀 Maksimum performans için optimal ayar\n\nTüm fiziksel core'ları kullanır, hyperthreading'den kaçınır", "Maksimum Performans");
+            else if (button.Text.Contains("Güç Tasarrufu"))
+                TooltipHelper.SetTooltip(button, "🔋 Güç tasarrufu için minimal ayar\n\nSadece ilk NUMA node'daki az sayıda CPU kullanır", "Güç Tasarrufu");
+            else if (button.Text.Contains("Dengeli"))
+                TooltipHelper.SetTooltip(button, "⚖️ Dengeli performans ayarı\n\nHer NUMA node'dan eşit sayıda CPU kullanır", "Dengeli");
+            else if (button.Text.Contains("Tamam"))
+                TooltipHelper.SetTooltip(button, TooltipTexts.OK_BUTTON, "✅ Tamam");
+            else if (button.Text.Contains("İptal"))
+                TooltipHelper.SetTooltip(button, TooltipTexts.CANCEL_BUTTON, "❌ İptal");
+        }
+
+        // CPU butonlarına tooltip ekle
+        for (int i = 0; i < _systemInfo.LogicalProcessors; i++)
+        {
+            var cpuButton = this.Controls.Find($"btnCpu{i}", true).FirstOrDefault() as Button;
+            if (cpuButton != null)
+            {
+                var nodeId = GetNumaNodeId(i);
+                var coreId = i / 2;
+                var threadId = i % 2;
+                var tooltipText = $"🖥️ CPU {i}\n\n" +
+                                $"• NUMA Node: {nodeId}\n" +
+                                $"• Core: {coreId}\n" +
+                                $"• Thread: {threadId}\n\n" +
+                                $"💡 İpucu: Tıklayarak seçin/deseç edin";
+                TooltipHelper.SetTooltip(cpuButton, tooltipText, $"CPU {i}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Belirtilen tipteki tüm kontrolleri bulur
+    /// </summary>
+    private List<T> GetAllControls<T>(Control parent) where T : Control
+    {
+        var controls = new List<T>();
+        
+        foreach (Control control in parent.Controls)
+        {
+            if (control is T targetControl)
+                controls.Add(targetControl);
+            
+            controls.AddRange(GetAllControls<T>(control));
+        }
+        
+        return controls;
+    }
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        // Tooltip'leri temizle
+        TooltipHelper.ClearFormTooltips(this);
+        
+        base.OnFormClosing(e);
     }
 }

@@ -87,6 +87,9 @@ public partial class AffinityDialog : Form
         mainLayout.Controls.Add(buttonPanel, 0, 6);
 
         this.Controls.Add(mainLayout);
+        
+        // Tooltip'leri ayarla
+        SetupTooltips();
     }
 
     private GroupBox CreateProcessInfoPanel()
@@ -665,7 +668,18 @@ public partial class AffinityDialog : Form
         };
         btnRegistryManager.Click += BtnRegistryManager_Click;
 
-        layout.Controls.AddRange(new Control[] { btnCancel, btnApply, btnOptimal, btnProfessional, btnRegistryManager });
+        var btnErpSmart = new Button
+        {
+            Text = "🏢 ERP Akıllı",
+            Size = new Size(100, 35),
+            BackColor = Color.DarkGoldenrod,
+            ForeColor = Color.White,
+            UseVisualStyleBackColor = false,
+            Font = new Font("Segoe UI", 8F, FontStyle.Bold)
+        };
+        btnErpSmart.Click += BtnErpSmart_Click;
+
+        layout.Controls.AddRange(new Control[] { btnCancel, btnApply, btnOptimal, btnProfessional, btnErpSmart, btnRegistryManager });
         panel.Controls.Add(layout);
         return panel;
     }
@@ -903,6 +917,7 @@ public partial class AffinityDialog : Form
     private void CpuButton_Click(object sender, EventArgs e)
     {
         var button = sender as Button;
+        if (button?.Tag == null) return;
         var cpuId = (int)button.Tag;
         
         if (_selectedCpus.Contains(cpuId))
@@ -920,7 +935,7 @@ public partial class AffinityDialog : Form
 
     private void UpdateCpuButtonState(Button button, bool selected)
     {
-        var cpuId = (int)button.Tag;
+        var cpuId = (int)(button.Tag ?? 0);
         var nodeColor = GetNumaNodeColor(cpuId);
         
         if (selected)
@@ -956,10 +971,11 @@ public partial class AffinityDialog : Form
         _selectedCpus.Clear();
         _selectedCpus.AddRange(recommendation.RecommendedCpus.Take(4)); // İlk 4 CPU'yu al
         
-        // Button'ları güncelle
-        foreach (Control control in this.Controls.Find("", true))
+        // Button'ları güncelle - tüm CPU butonlarını bul
+        var allButtons = GetAllControls<Button>(this);
+        foreach (var btn in allButtons)
         {
-            if (control is Button btn && btn.Name.StartsWith("btnCpu"))
+            if (btn.Name.StartsWith("btnCpu") && btn.Tag != null)
             {
                 var cpuId = (int)btn.Tag;
                 UpdateCpuButtonState(btn, _selectedCpus.Contains(cpuId));
@@ -994,6 +1010,178 @@ public partial class AffinityDialog : Form
         registryDialog.ShowDialog(this);
     }
 
+    /// <summary>
+    /// ERP akıllı atama - ERP yazılımları için özel NUMA stratejisi
+    /// </summary>
+    private void BtnErpSmart_Click(object sender, EventArgs e)
+    {
+        try
+        {
+            // ERP akıllı atama yap
+            var erpCpus = NumaService.ErpSmartAssignment.GetOptimalErpAssignment(_systemInfo, _processInfo.ProcessName);
+            
+            if (erpCpus.Count > 0)
+            {
+                _selectedCpus.Clear();
+                _selectedCpus.AddRange(erpCpus);
+                
+                // CPU butonlarını güncelle
+                var allButtons = GetAllControls<Button>(this);
+                foreach (var btn in allButtons)
+                {
+                    if (btn.Name.StartsWith("btnCpu") && btn.Tag != null)
+                    {
+                        var cpuId = (int)btn.Tag;
+                        UpdateCpuButtonState(btn, _selectedCpus.Contains(cpuId));
+                    }
+                }
+                
+                UpdateAffinityDisplay();
+                AnalyzeAndSuggest();
+                
+                // ERP stratejisi hakkında bilgi ver
+                var strategy = GetErpStrategyInfo(_processInfo.ProcessName);
+                var message = $"🏢 ERP Akıllı Atama Uygulandı!\n\n" +
+                             $"📊 Process: {_processInfo.ProcessName}\n" +
+                             $"🎯 Strateji: {strategy.Strategy}\n" +
+                             $"💡 Açıklama: {strategy.Description}\n" +
+                             $"🖥️ Seçilen CPU'lar: {string.Join(", ", _selectedCpus.OrderBy(x => x))}\n\n" +
+                             $"✅ Yatay mimari optimizasyonu için en uygun NUMA node seçildi!";
+                
+                MessageBox.Show(message, "🏢 ERP Akıllı Atama", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            else
+            {
+                MessageBox.Show("⚠️ ERP akıllı atama için uygun CPU bulunamadı!\n\n" +
+                               "Sistem yapılandırmasını kontrol edin.", "ERP Atama Hatası", 
+                               MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"❌ ERP akıllı atama hatası:\n{ex.Message}", "Hata", 
+                           MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    /// <summary>
+    /// ERP stratejisi bilgilerini döner
+    /// </summary>
+    private (string Strategy, string Description) GetErpStrategyInfo(string processName)
+    {
+        var name = processName.ToLower();
+        
+        if (name.Contains("sql") || name.Contains("oracle") || name.Contains("postgres"))
+        {
+            return ("Veritabanı Sunucusu", "Son NUMA node'ları tercih edilir (genelde daha az kullanılır)");
+        }
+        else if (name.Contains("iis") || name.Contains("apache") || name.Contains("tomcat"))
+        {
+            return ("Web Sunucusu", "Orta NUMA node'ları tercih edilir (dengeli yük dağılımı)");
+        }
+        else if (name.Contains("report") || name.Contains("crystal") || name.Contains("ssrs"))
+        {
+            return ("Rapor Sunucusu", "İlk NUMA node'u tercih edilir (genelde daha stabil)");
+        }
+        else if (name.Contains("sap") || name.Contains("capital") || name.Contains("capital.exe") || name.Contains("labsmobile"))
+        {
+            return ("ERP Uygulama Sunucusu", "En az yüklü NUMA node'u tercih edilir (performans optimizasyonu)");
+        }
+        else
+        {
+            return ("Genel ERP", "En az yüklü NUMA node'u tercih edilir (varsayılan strateji)");
+        }
+    }
+
+    /// <summary>
+    /// Tooltip'leri ayarlar
+    /// </summary>
+    private void SetupTooltips()
+    {
+        // Tüm butonları bul ve tooltip ekle
+        var allButtons = GetAllControls<Button>(this);
+        
+        foreach (var button in allButtons)
+        {
+            if (button.Text.Contains("Optimal Ayar"))
+                TooltipHelper.SetTooltip(button, TooltipTexts.OPTIMAL_BUTTON, "🚀 Optimal Ayar");
+            else if (button.Text.Contains("Profesyonel Mod"))
+                TooltipHelper.SetTooltip(button, TooltipTexts.PROFESSIONAL_BUTTON, "🔧 Profesyonel Mod");
+            else if (button.Text.Contains("ERP Akıllı"))
+                TooltipHelper.SetTooltip(button, TooltipTexts.ERP_SMART_BUTTON, "🏢 ERP Akıllı Atama");
+            else if (button.Text.Contains("Registry Yönetimi"))
+                TooltipHelper.SetTooltip(button, TooltipTexts.REGISTRY_MANAGER_BUTTON, "🗃️ Registry Yönetimi");
+            else if (button.Text.Contains("Affinity Uygula"))
+                TooltipHelper.SetTooltip(button, TooltipTexts.OK_BUTTON, "✅ Affinity Uygula");
+            else if (button.Text.Contains("İptal"))
+                TooltipHelper.SetTooltip(button, TooltipTexts.CANCEL_BUTTON, "❌ İptal");
+            else if (button.Text.Contains("Tümünü Seç"))
+                TooltipHelper.SetTooltip(button, "✅ Tüm CPU'ları seçer\n\nTüm mevcut CPU çekirdeklerini seçer", "Tümünü Seç");
+            else if (button.Text.Contains("Hiçbirini Seçme"))
+                TooltipHelper.SetTooltip(button, "❌ Tüm seçimleri kaldırır\n\nHiçbir CPU seçili kalmaz", "Hiçbirini Seçme");
+            else if (button.Text.Contains("İlk N CPU"))
+                TooltipHelper.SetTooltip(button, "🎯 İlk N CPU'yu seçer\n\nBelirtilen sayıda ilk CPU'ları seçer", "İlk N CPU");
+            else if (button.Text.Contains("Son N CPU"))
+                TooltipHelper.SetTooltip(button, "🎯 Son N CPU'yu seçer\n\nBelirtilen sayıda son CPU'ları seçer", "Son N CPU");
+            else if (button.Text.Contains("Orta N CPU"))
+                TooltipHelper.SetTooltip(button, "🎯 Orta N CPU'yu seçer\n\nBelirtilen sayıda ortadaki CPU'ları seçer", "Orta N CPU");
+        }
+
+        // Checkbox'a tooltip ekle
+        var chkPermanent = this.Controls.Find("chkPermanent", true).FirstOrDefault() as CheckBox;
+        if (chkPermanent != null)
+            TooltipHelper.SetTooltip(chkPermanent, TooltipTexts.PERMANENT_CHECKBOX, "💾 Kalıcı Kaydetme");
+
+        // CPU butonlarına tooltip ekle
+        for (int i = 0; i < _systemInfo.LogicalProcessors; i++)
+        {
+            var cpuButton = this.Controls.Find($"btnCpu{i}", true).FirstOrDefault() as Button;
+            if (cpuButton != null)
+            {
+                var nodeId = GetNumaNodeId(i);
+                var coreId = i / 2;
+                var threadId = i % 2;
+                var tooltipText = $"🖥️ CPU {i}\n\n" +
+                                $"• NUMA Node: {nodeId}\n" +
+                                $"• Core: {coreId}\n" +
+                                $"• Thread: {threadId}\n\n" +
+                                $"💡 İpucu: Tıklayarak seçin/deseç edin";
+                TooltipHelper.SetTooltip(cpuButton, tooltipText, $"CPU {i}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Belirtilen tipteki tüm kontrolleri bulur
+    /// </summary>
+    private List<T> GetAllControls<T>(Control parent) where T : Control
+    {
+        var controls = new List<T>();
+        
+        foreach (Control control in parent.Controls)
+        {
+            if (control is T targetControl)
+                controls.Add(targetControl);
+            
+            controls.AddRange(GetAllControls<T>(control));
+        }
+        
+        return controls;
+    }
+
+    /// <summary>
+    /// NUMA node ID'sini döner
+    /// </summary>
+    private int GetNumaNodeId(int cpuId)
+    {
+        foreach (var node in _systemInfo.Nodes)
+        {
+            if (node.ProcessorIds.Contains(cpuId))
+                return node.NodeId;
+        }
+        return 0;
+    }
+
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
         if (this.DialogResult == DialogResult.OK)
@@ -1008,6 +1196,9 @@ public partial class AffinityDialog : Form
                 return;
             }
         }
+        
+        // Tooltip'leri temizle
+        TooltipHelper.ClearFormTooltips(this);
         
         base.OnFormClosing(e);
     }

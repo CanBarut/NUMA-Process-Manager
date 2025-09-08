@@ -60,6 +60,9 @@ public partial class RegistryManagerDialog : Form
         mainLayout.Controls.Add(buttonPanel, 0, 3);
 
         this.Controls.Add(mainLayout);
+        
+        // Tooltip'leri ayarla
+        SetupTooltips();
     }
 
     private Panel CreateInfoPanel()
@@ -370,7 +373,8 @@ public partial class RegistryManagerDialog : Form
         if (listView?.SelectedItems.Count > 0)
         {
             var record = listView.SelectedItems[0].Tag as ProcessAffinityRecord;
-            UpdateDetails(record);
+            if (record != null)
+                UpdateDetails(record);
         }
         else
         {
@@ -567,5 +571,77 @@ public partial class RegistryManagerDialog : Form
         public List<int> CpuIds { get; set; } = new();
         public int CpuCount { get; set; }
         public DateTime RegistryDate { get; set; }
+    }
+
+    /// <summary>
+    /// Tooltip'leri ayarlar
+    /// </summary>
+    private void SetupTooltips()
+    {
+        // Tüm butonları bul ve tooltip ekle
+        var allButtons = GetAllControls<Button>(this);
+        
+        foreach (var button in allButtons)
+        {
+            if (button.Text.Contains("Yenile"))
+                TooltipHelper.SetTooltip(button, "🔄 Registry kayıtlarını yeniler\n\nGüncel kayıtları yükler", "🔄 Yenile");
+            else if (button.Text.Contains("Sil") && !button.Text.Contains("Tümünü"))
+                TooltipHelper.SetTooltip(button, TooltipTexts.DELETE_BUTTON, "🗑️ Sil");
+            else if (button.Text.Contains("Tümünü Sil"))
+                TooltipHelper.SetTooltip(button, TooltipTexts.DELETE_ALL_BUTTON, "🗑️ Tümünü Sil");
+            else if (button.Text.Contains("Dışa Aktar"))
+                TooltipHelper.SetTooltip(button, TooltipTexts.EXPORT_BUTTON, "📤 Dışa Aktar");
+            else if (button.Text.Contains("İçe Aktar"))
+                TooltipHelper.SetTooltip(button, TooltipTexts.IMPORT_BUTTON, "📥 İçe Aktar");
+            else if (button.Text.Contains("Kapat"))
+                TooltipHelper.SetTooltip(button, TooltipTexts.CLOSE_BUTTON, "❌ Kapat");
+        }
+
+        // ListView'e tooltip ekle
+        var lvRecords = this.Controls.Find("lvRecords", true).FirstOrDefault() as ListView;
+        if (lvRecords != null)
+            TooltipHelper.SetTooltip(lvRecords, "📋 Registry'deki affinity kayıtları\n\n" +
+                                              "• Process Adı: Uygulama adı\n" +
+                                              "• Affinity Mask: Hex değer\n" +
+                                              "• CPU Sayısı: Seçili CPU sayısı\n" +
+                                              "• CPU ID'leri: Seçili CPU'lar\n" +
+                                              "• Kayıt Tarihi: Oluşturulma tarihi\n\n" +
+                                              "💡 İpucu: Kayıt seçerek detayları görün", "📋 Registry Kayıtları");
+
+        // Detay paneli tooltip
+        var rtbDetails = this.Controls.Find("rtbDetails", true).FirstOrDefault() as RichTextBox;
+        if (rtbDetails != null)
+            TooltipHelper.SetTooltip(rtbDetails, "🔍 Seçili kaydın detayları\n\n" +
+                                                "• Process bilgileri\n" +
+                                                "• Affinity mask analizi\n" +
+                                                "• NUMA dağılımı\n" +
+                                                "• Core analizi\n\n" +
+                                                "💡 İpucu: Sol listeden kayıt seçin", "🔍 Detaylar");
+    }
+
+    /// <summary>
+    /// Belirtilen tipteki tüm kontrolleri bulur
+    /// </summary>
+    private List<T> GetAllControls<T>(Control parent) where T : Control
+    {
+        var controls = new List<T>();
+        
+        foreach (Control control in parent.Controls)
+        {
+            if (control is T targetControl)
+                controls.Add(targetControl);
+            
+            controls.AddRange(GetAllControls<T>(control));
+        }
+        
+        return controls;
+    }
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        // Tooltip'leri temizle
+        TooltipHelper.ClearFormTooltips(this);
+        
+        base.OnFormClosing(e);
     }
 }
